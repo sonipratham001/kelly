@@ -65,14 +65,14 @@ updatedData.messageMCU1 = {
   speed: calculatedSpeed, // 👈 inject calculated speed
   throttle: Math.floor(Math.random() * 100),
   brake: Math.floor(Math.random() * 30),
-  rmsCurrent: Math.round(100 + Math.random() * 50),
 };
 
-        updatedData.messageMCU2 = {
-          ...prev.messageMCU2,
-          motorRPM: Math.floor(1000 + Math.random() * 4000),
-          odometer: Number((prev.messageMCU2?.odometer ?? 0) + 0.2),
-        };
+       updatedData.messageMCU2 = {
+  ...prev.messageMCU2,
+  motorRPM: Math.floor(1000 + Math.random() * 4000),
+  odometer: Number((prev.messageMCU2?.odometer ?? 0) + 0.2),
+  rmsCurrent: Math.round(100 + Math.random() * 50),  // Move here
+};
 
         updatedData.messageMCU3 = {
           ...prev.messageMCU3,
@@ -395,16 +395,30 @@ const parseKLS_Faults = (buffer: Buffer) => {
 // 2: motor temp (actual = val - 30 °C)
 // 3: reserved
 // 4: controller status (mode bits), 5: switch bits, 6..7 reserved
+// Msg 2 (0x0CF11F05): bytes:
+// 0: throttle (0..255 => 0..5V)
+// 1: controller temp (actual = val - 40 °C)
+// 2: motor temp (actual = val - 30 °C)
+// 3: reserved
+// 4: controller status (mode bits), 5: switch bits, 6..7 reserved
 const parseKLS_Msg2 = (buffer: Buffer) => {
   const throttleRaw = buffer.readUInt8(0);
   const throttleVolts = throttleRaw * (5 / 255);
-  const controllerTemperature = buffer.readInt8(1) - 40;
-  const motorTemperature = buffer.readInt8(2) - 30;
+  const controllerTemperature = buffer.readUInt8(1) - 40;  // ✅ Fix: UInt8 (unsigned)
+  const motorTemperature = buffer.readUInt8(2) - 30;       // ✅ Fix: UInt8 (unsigned)
+
+  // Optional: Clamp to sane ranges (e.g., avoid implausible negatives if offset underflows)
+  const clampedControllerTemp = Math.max(-40, controllerTemperature); // e.g., min -40°C
+  const clampedMotorTemp = Math.max(-30, motorTemperature);
+
+  // Debug log (remove in production)
+  console.log(`[KLS Msg2] Raw Ctrl Temp Byte: ${buffer[1]}, Parsed: ${clampedControllerTemp}°C`);
+  console.log(`[KLS Msg2] Raw Motor Temp Byte: ${buffer[2]}, Parsed: ${clampedMotorTemp}°C`);
 
   return {
     messageType: "Controller Parameters",
-    controllerTemperature,
-    motorTemperature,
+    controllerTemperature: clampedControllerTemp,
+    motorTemperature: clampedMotorTemp,
     throttle: Math.round((throttleVolts / 5) * 100), // percent-like 0..100 for UI continuity
     // you can keep throttleVolts too if you want to show it
     throttleVolts,
