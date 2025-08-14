@@ -1,11 +1,5 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Animated,
-  Easing,
-} from "react-native";
+import { View, Text, TouchableOpacity, Animated, Easing } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import { BatteryBluetoothContext } from "../../services/BatteryBluetoothProvider";
 import Papa from "papaparse";
@@ -47,19 +41,14 @@ type Snapshot = {
   controllerFaults: string;
 };
 
-type RecordStatus =
-  | "idle"
-  | "arming"
-  | "recording"
-  | "finalizing"
-  | "ready"
-  | "error";
+type RecordStatus = "idle" | "arming" | "recording" | "finalizing" | "ready" | "error";
 
-const INACTIVITY_MS = 2000;
+const INACTIVITY_MS = 2000;    // auto-stop after 2s without frames
+const CSV_SAMPLE_MS = 1000;    // <-- sample CSV once per second
 
 const ExportDataScreen: React.FC = () => {
   const navigation = useNavigation();
-  const { data = {} } = useContext(BatteryBluetoothContext);
+  const { data = {} } = useContext(BatteryBluetoothContext) as any;
 
   const {
     messageDIU1 = {},
@@ -71,7 +60,7 @@ const ExportDataScreen: React.FC = () => {
     messageMCU2 = {},
     messageMCU3 = {},
     rawFrame,
-  } = data as any;
+  } = data;
 
   const [status, setStatus] = useState<RecordStatus>("idle");
   const [recordedData, setRecordedData] = useState<Snapshot[]>([]);
@@ -83,8 +72,11 @@ const ExportDataScreen: React.FC = () => {
   const [trcPath, setTrcPath] = useState<string | null>(null);
   const [zipPath, setZipPath] = useState<string | null>(null);
 
+  // timers
   const inactivityTimer = useRef<NodeJS.Timeout | null>(null);
+  const samplerTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // spinner
   const spinVal = useRef(new Animated.Value(0)).current;
   const startSpin = () => {
     spinVal.setValue(0);
@@ -98,10 +90,7 @@ const ExportDataScreen: React.FC = () => {
     ).start();
   };
   const stopSpin = () => spinVal.stopAnimation();
-  const spin = spinVal.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
+  const spin = spinVal.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
 
   const makeSnapshot = (): Snapshot => {
     const ts = new Date()
@@ -117,8 +106,7 @@ const ExportDataScreen: React.FC = () => {
       })
       .replace(",", "");
 
-    const safe = (v: any, dflt = 0) =>
-      v === null || v === undefined ? dflt : v;
+    const safe = (v: any, dflt = 0) => (v === null || v === undefined ? dflt : v);
 
     return {
       timestamp: ts,
@@ -128,10 +116,7 @@ const ExportDataScreen: React.FC = () => {
       maxCellVoltage: safe(messageDIU3.maxCellVoltage?.toFixed?.(3), 0),
       maxCellTemp: safe(messageDriveParameters.maxCellTemp, 0),
       minCellTemp: safe(messageDriveParameters.minCellTemp, 0),
-      availableEnergy: safe(
-        messageDriveParameters.availableEnergy?.toFixed?.(2),
-        0
-      ),
+      availableEnergy: safe(messageDriveParameters.availableEnergy?.toFixed?.(2), 0),
       driveCurrentLimit: safe(messageDIU2.driveCurrentLimit, 0),
       regenCurrentLimit: safe(messageDIU2.regenCurrentLimit, 0),
       controllerTemperature: safe(messageMCU1.controllerTemperature, 0),
@@ -144,8 +129,7 @@ const ExportDataScreen: React.FC = () => {
       capacitorVoltage: safe(messageMCU2.capacitorVoltage?.toFixed?.(1), 0),
       odometer: safe(messageMCU2.odometer?.toFixed?.(1), 0),
       controllerFaults:
-        Array.isArray(messageMCU3.faultMessages) &&
-        messageMCU3.faultMessages.length
+        Array.isArray(messageMCU3.faultMessages) && messageMCU3.faultMessages.length
           ? messageMCU3.faultMessages.join(", ")
           : "None",
     };
@@ -154,8 +138,7 @@ const ExportDataScreen: React.FC = () => {
   const normalizeRawFrame = (frame: any): RawFrame | null => {
     if (!frame) return null;
     const out: RawFrame = {
-      timeOffsetMs:
-        typeof frame.timeOffsetMs === "number" ? frame.timeOffsetMs : 0,
+      timeOffsetMs: typeof frame.timeOffsetMs === "number" ? frame.timeOffsetMs : 0,
       type: typeof frame.type === "string" ? frame.type : "Rx",
     };
     if (typeof frame.id === "number") {
@@ -167,8 +150,7 @@ const ExportDataScreen: React.FC = () => {
     }
     if (Array.isArray(frame.bytes)) {
       out.bytes = frame.bytes.map((b: any) => {
-        if (typeof b === "number")
-          return b.toString(16).toUpperCase().padStart(2, "0");
+        if (typeof b === "number") return b.toString(16).toUpperCase().padStart(2, "0");
         if (typeof b === "string") return b.toUpperCase().padStart(2, "0");
         return "00";
       });
@@ -201,7 +183,23 @@ const ExportDataScreen: React.FC = () => {
     return `${header}\n${body.join("\n")}`;
   };
 
+  // ---- sampling control (1 Hz for CSV) ----
+  const startSampler = () => {
+    if (samplerTimer.current) return;
+    samplerTimer.current = setInterval(() => {
+      // take a snapshot once per second using *latest* decoded values
+      setRecordedData(prev => [...prev, makeSnapshot()]);
+    }, CSV_SAMPLE_MS);
+  };
+  const stopSampler = () => {
+    if (samplerTimer.current) {
+      clearInterval(samplerTimer.current);
+      samplerTimer.current = null;
+    }
+  };
+
   const resetAll = async () => {
+    stopSampler();
     setStatus("idle");
     setRecordedData([]);
     setRawFrames([]);
@@ -216,6 +214,7 @@ const ExportDataScreen: React.FC = () => {
     try {
       setStatus("finalizing");
       stopSpin();
+      stopSampler();
 
       if (!recordedData.length || !rawFrames.length) {
         Toast.show({ type: "info", text1: "No data to save" });
@@ -257,19 +256,10 @@ const ExportDataScreen: React.FC = () => {
       setZipPath(zipped);
 
       setStatus("ready");
-      Toast.show({
-        type: "success",
-        text1: "Recording saved",
-        text2: "Ready to share ZIP",
-      });
+      Toast.show({ type: "success", text1: "Recording saved", text2: "Ready to share ZIP" });
     } catch (e: any) {
-      console.warn("❌ Finalize failed:", e?.message ?? e);
       setStatus("error");
-      Toast.show({
-        type: "error",
-        text1: "Save failed",
-        text2: String(e?.message ?? e),
-      });
+      Toast.show({ type: "error", text1: "Save failed", text2: String(e?.message ?? e) });
     }
   };
 
@@ -295,37 +285,43 @@ const ExportDataScreen: React.FC = () => {
     }, INACTIVITY_MS);
   };
 
+  // On every new raw frame: store frame & manage state.
+  // (CSV is *not* appended here anymore — it's sampled by the 1 Hz timer.)
   useEffect(() => {
     if (!rawFrame) return;
 
     const nf = normalizeRawFrame(rawFrame);
     if (!nf) return;
 
-    setFramesSeen((n) => n + 1);
-    setRawFrames((prev) => [...prev, nf]);
-    setRecordedData((prev) => [...prev, makeSnapshot()]);
+    setFramesSeen(n => n + 1);
+    setRawFrames(prev => [...prev, nf]);
 
-    setStatus((s) => {
+    setStatus(s => {
       if (s === "idle") {
         startSpin();
+        startSampler();          // <-- start 1 Hz CSV sampler when stream starts
         armInactivityTimeout();
         return "arming";
       }
       if (s === "arming" && framesSeen + 1 >= 2) {
         startSpin();
+        startSampler();          // (idempotent)
         armInactivityTimeout();
         return "recording";
       }
       if (s === "recording") {
-        armInactivityTimeout();
+        armInactivityTimeout();  // keep alive while frames arrive
       }
       return s;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawFrame]);
 
+  // Cleanup
   useEffect(() => {
     return () => {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+      stopSampler();
       stopSpin();
     };
   }, []);
@@ -335,24 +331,18 @@ const ExportDataScreen: React.FC = () => {
   }, [recordedData.length, rawFrames.length]);
 
   return (
-    <LinearGradient
-      colors={["#0a0f1c", "#1f2937", "#111827"]}
-      style={styles.screen}
-    >
+    <LinearGradient colors={["#0a0f1c", "#1f2937", "#111827"]} style={styles.screen}>
       {/* Top section */}
       <View style={styles.topSection}>
         {/* Back Arrow */}
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Icon name="arrow-left" size={28} color="#fff" />
         </TouchableOpacity>
 
         <Text style={[styles.title, { marginLeft: 48 }]}>Export Vehicle Data</Text>
         <Text style={styles.subtitle}>
           {status === "recording"
-            ? "Recording… will stop automatically when data stops"
+            ? "Recording at 1 Hz… auto-stops when data stops"
             : status === "arming"
             ? "Waiting for data…"
             : status === "finalizing"
@@ -362,32 +352,22 @@ const ExportDataScreen: React.FC = () => {
             : "Idle — waiting for stream"}
         </Text>
 
-        <Animated.View
-          style={[styles.iconCircle, { transform: [{ rotate: spin }] }]}
-        >
+        <Animated.View style={[styles.iconCircle, { transform: [{ rotate: spin }] }]}>
           <Icon
-            name={
-              status === "recording" || status === "arming"
-                ? "record-circle"
-                : "export-variant"
-            }
+            name={status === "recording" || status === "arming" ? "record-circle" : "export-variant"}
             size={66}
-            color={
-              status === "recording" || status === "arming"
-                ? "#ef4444"
-                : "#facc15"
-            }
+            color={status === "recording" || status === "arming" ? "#ef4444" : "#facc15"}
           />
         </Animated.View>
 
         <View style={styles.statRow}>
           <View style={styles.statPill}>
             <Text style={styles.statVal}>{stats.frames}</Text>
-            <Text style={styles.statLabel}>frames</Text>
+            <Text style={styles.statLabel}>frames (TRC)</Text>
           </View>
           <View style={styles.statPill}>
             <Text style={styles.statVal}>{stats.rows}</Text>
-            <Text style={styles.statLabel}>rows</Text>
+            <Text style={styles.statLabel}>rows (CSV @1s)</Text>
           </View>
         </View>
 
@@ -403,12 +383,8 @@ const ExportDataScreen: React.FC = () => {
         {status === "ready" && (
           <View style={styles.resultCard}>
             <Text style={styles.resultTitle}>Export ready</Text>
-            <Text style={styles.filePath} numberOfLines={1}>
-              {csvPath}
-            </Text>
-            <Text style={styles.filePath} numberOfLines={1}>
-              {trcPath}
-            </Text>
+            <Text style={styles.filePath} numberOfLines={1}>{csvPath}</Text>
+            <Text style={styles.filePath} numberOfLines={1}>{trcPath}</Text>
 
             <View style={styles.resultActions}>
               <TouchableOpacity style={styles.primaryBtn} onPress={shareZip}>
