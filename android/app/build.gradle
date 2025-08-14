@@ -1,6 +1,5 @@
 plugins {
     id 'com.android.application'
-    id 'com.google.gms.google-services' // ✅ Correct Firebase Plugin
     id 'org.jetbrains.kotlin.android'
     id 'com.facebook.react'
 }
@@ -81,7 +80,7 @@ android {
 
     namespace "com.myproject"
     defaultConfig {
-        applicationId "com.myproject"
+        applicationId "com.myproject.kelly"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -126,9 +125,6 @@ dependencies {
     implementation("com.facebook.react:react-android")
 
     // Firebase (using BoM to manage versions)
-    implementation platform('com.google.firebase:firebase-bom:33.9.0')
-    implementation 'com.google.firebase:firebase-analytics'
-    implementation 'com.google.firebase:firebase-auth'
 
     // Billing and IAP
     implementation "com.android.billingclient:billing:6.0.1"
@@ -155,5 +151,3 @@ dependencies {
         implementation jscFlavor
     }
 }
-
-apply plugin: 'com.google.gms.google-services'

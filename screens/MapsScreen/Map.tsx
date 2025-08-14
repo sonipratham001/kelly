@@ -31,12 +31,12 @@ const GOOGLE_MAPS_API_KEY = 'AIzaSyBXfOOUN_nGASNdGB9yrcBiXgR0xIvm_4g';
 const MapScreen = () => {
   const { location, error, isLoading } = useLocation();
   const [userRegion, setUserRegion] = useState<Region | null>(null);
-  const markerPosition = useRef(
+ const markerPosition = useRef(
   new AnimatedRegion({
-    latitude: location?.latitude || 0,
-    longitude: location?.longitude || 0,
-    latitudeDelta: 0.001,
-    longitudeDelta: 0.001,
+    latitude: location?.latitude ?? 0,
+    longitude: location?.longitude ?? 0,
+    latitudeDelta: 0,          // 👈 add
+    longitudeDelta: 0,         // 👈 add
   })
 ).current;
   const [destination, setDestination] = useState<Region | null>(null);
@@ -70,7 +70,6 @@ const [searchText, setSearchText] = useState('');
     const [isRerouting, setIsRerouting] = useState(false);
 const rerouteAnim = useRef(new Animated.Value(0)).current;
 const [currentZoom, setCurrentZoom] = useState(18);
-const AnimatedMarker = RNAnimated.createAnimatedComponent(Marker);
 const lastMarkerCoords = useRef<{ latitude: number; longitude: number }>({
   latitude: location?.latitude || 0,
   longitude: location?.longitude || 0,
@@ -395,28 +394,28 @@ if (
   !isAnimating.current
 ) {
   if (markerDistance < 20) {
-    // For small movements, update instantly without animation
+    // small nudge: snap without animation
     markerPosition.setValue({
-      latitude,
-      longitude,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    });
+  latitude,
+  longitude,
+  latitudeDelta: 0,
+  longitudeDelta: 0,
+});
   } else {
-    // For larger movements, animate
+    // larger move: smoothly animate
     isAnimating.current = true;
     markerPosition
-      .timing({
-        latitude,
-        longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-        duration: 500,
-        useNativeDriver: false,
-      } as any)
-      .start(() => {
-        isAnimating.current = false;
-      });
+  .timing({
+    latitude,
+    longitude,
+    latitudeDelta: 0,
+    longitudeDelta: 0,
+    duration: 500,
+    useNativeDriver: false,  // 👈 required for this type signature
+  } as any)                  // 👈 keeps TS happy across lib versions
+  .start(() => {
+    isAnimating.current = false;
+  });
   }
 
   lastMarkerCoords.current = { latitude, longitude };
@@ -575,6 +574,13 @@ const handleZoomOut = () => {
   setCurrentZoom(newZoom);
   mapRef.current?.animateCamera({ zoom: newZoom }, { duration: 300 });
 };
+
+useEffect(() => {
+  return () => {
+    try { stopJourney(); } catch {}
+  };
+}, []);
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <LinearGradient colors={['#0a0f1c', '#1f2937', '#111827']} style={styles.container}>
@@ -692,16 +698,16 @@ const handleZoomOut = () => {
 
         <View style={styles.mapWrapper}>
   <MapView
-    ref={mapRef}
-    style={styles.map}
-    region={
-      userRegion || {
-        latitude: 20.5937, // fallback (India center)
-        longitude: 78.9629,
-        latitudeDelta: 10,
-        longitudeDelta: 10,
-      }
+  ref={mapRef}
+  style={styles.map}
+  initialRegion={
+    userRegion ?? {
+      latitude: 20.5937,
+      longitude: 78.9629,
+      latitudeDelta: 10,
+      longitudeDelta: 10,
     }
+  }
     followsUserLocation={true}
     showsMyLocationButton={true}
     showsCompass={true}
@@ -717,29 +723,29 @@ const handleZoomOut = () => {
       <Polyline coordinates={routeCoords} strokeWidth={5} strokeColor="#00BFFF" />
     )}
 
-    {userRegion && isJourneyStarted && (
-  <AnimatedMarker
+   {userRegion && isJourneyStarted && (
+  <Marker.Animated
     coordinate={markerPosition as any}
     anchor={{ x: 0.5, y: 0.5 }}
-    rotation={userHeading as any}
-    flat={true}
+    flat
     zIndex={1000}
   >
+    {/* keep heading rotation on the inner view (smooth & cross‑platform) */}
     <RNAnimated.View
-  style={{
-    transform: [
-      {
-        rotate: userHeading.interpolate({
-          inputRange: [0, 360],
-          outputRange: ['0deg', '360deg'],
-        }),
-      },
-    ],
-  }}
->
-  <Icon name="navigation" size={30} color="#00ccff" />
-</RNAnimated.View>
-  </AnimatedMarker>
+      style={{
+        transform: [
+          {
+            rotate: userHeading.interpolate({
+              inputRange: [0, 360],
+              outputRange: ['0deg', '360deg'],
+            }),
+          },
+        ],
+      }}
+    >
+      <Icon name="navigation" size={30} color="#00ccff" />
+    </RNAnimated.View>
+  </Marker.Animated>
 )}
 
 {userRegion && !isJourneyStarted && (
