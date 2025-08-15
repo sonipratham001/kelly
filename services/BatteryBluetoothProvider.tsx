@@ -3,6 +3,7 @@ import { BleManager, Device, BleError } from "react-native-ble-plx";
 import { Buffer } from "buffer";
 import { USE_MOCK_DATA, USE_GPIO_TEST_MODE } from '../src/config';
 import { mockBluetoothData } from './mockBluetoothData';
+import recorder from "./VehicleDataRecorder";
 // Create Bluetooth Context
 export const BatteryBluetoothContext = createContext<any>(null);
 
@@ -13,10 +14,29 @@ const ERROR_CODES: { [key: number]: string } = {
   0: "General Battery Fault",
   1: "Battery Over Temperature",
 };
-
+const logStartTime = Date.now();
 export const BatteryBluetoothProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
   const [data, setData] = useState<any>({}); // Holds parsed CAN data
+
+  useEffect(() => {
+    recorder.updateDecoded(data);
+  }, [
+    data.messageDIU1,
+    data.messageDIU2,
+    data.messageDIU3,
+    data.messageDIU4,
+    data.messageDriveParameters,
+    data.messageMCU1,
+    data.messageMCU2,
+    data.messageMCU3
+  ]);
+
+    useEffect(() => {
+    if (data?.rawFrame) {
+      recorder.onRawFrame(data.rawFrame);
+    }
+  }, [data.rawFrame]);
 
    useEffect(() => {
   if (USE_MOCK_DATA) {
@@ -24,6 +44,7 @@ export const BatteryBluetoothProvider: React.FC<{ children: React.ReactNode }> =
     return;
   }
 }, []);
+
 useEffect(() => {
   if (!USE_MOCK_DATA && !USE_GPIO_TEST_MODE) return;
 
@@ -104,7 +125,7 @@ updatedData.messageMCU1 = {
     bytes: Array.from({ length: 8 }, () =>
       Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase()
     ),
-    timeOffsetMs: (now - logStartTime) / 1000, // ⬅️ Add this line
+    timeOffsetMs: now - logStartTime, // ⬅️ Add this line
     type: 'Rx',
   };
 
@@ -186,7 +207,6 @@ updatedData.messageMCU1 = {
     }
     return value;
 };
- const logStartTime = Date.now();
   const parseBluetoothData = (rawData: string) => {
   try {
     const buffer = Buffer.from(rawData, "base64");
@@ -209,7 +229,7 @@ updatedData.messageMCU1 = {
       const rawFrame = {
         id: messageID,
         bytes: [...payload].map(b => b.toString(16).padStart(2, "0").toUpperCase()),
-        timeOffsetMs: (Date.now() - logStartTime) / 1000,
+        timeOffsetMs: Date.now() - logStartTime,
         type: "Rx",
       };
 
