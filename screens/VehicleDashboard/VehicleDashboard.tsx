@@ -38,10 +38,17 @@ const motorFaults = batteryData.messageMCU3?.faultMessages;
 const batteryHasFault = batteryFaults && batteryFaults.length > 0 && !batteryFaults.includes('No Faults Detected');
 const motorHasFault = motorFaults && motorFaults.length > 0 && !motorFaults.includes('No Faults Detected');
 
-  let gear: 'f' | 'n' | 'r' = 'n';
-  if (gpio.FWD_OUT) gear = 'f';
-  else if (gpio.REV_OUT) gear = 'r';
-  else if (gpio.NEUTRAL_OUT) gear = 'n';
+ let gear: 'f' | 'n' | 'r' = 'f';
+  // If reverse is asserted, override to R
+  if (gpio.REV_OUT) {
+    gear = 'r';
+  // Else if neutral is asserted, override to N
+  } else if (gpio.NEUTRAL_OUT) {
+    gear = 'n';
+  // Else if forward explicitly asserted, keep F (optional but explicit)
+  } else if (gpio.FWD_OUT) {
+    gear = 'f';
+  }
 
   const getGlowColor = (speed: number | undefined): { color: string; intensity: number } => {
   if (speed == null) return { color: '#3b82f6', intensity: 0.4 };
