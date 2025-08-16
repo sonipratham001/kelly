@@ -422,16 +422,29 @@ const parseKLS_Faults = (buffer: Buffer) => {
 // 3: reserved
 // 4: controller status (mode bits), 5: switch bits, 6..7 reserved
 const parseKLS_Msg2 = (buffer: Buffer) => {
-  const throttleRaw = buffer.readUInt8(0);
-  const throttleVolts = throttleRaw * (5 / 255);
-  const controllerTemperature = buffer.readUInt8(1) - 40;  // ✅ Fix: UInt8 (unsigned)
-  const motorTemperature = buffer.readUInt8(2) - 30;       // ✅ Fix: UInt8 (unsigned)
+  const throttleRaw = buffer.readUInt8(0);       // raw ADC byte (0–255)
 
-  // Optional: Clamp to sane ranges (e.g., avoid implausible negatives if offset underflows)
-  const clampedControllerTemp = Math.max(-40, controllerTemperature); // e.g., min -40°C
+  // ✅ New calibrated throttle mapping
+  const THR_MIN = 43;    // 0x2B, idle
+  const THR_MAX = 215;   // 0xD7, full accel
+  const clamp = (v: number, min: number, max: number) =>
+    Math.max(min, Math.min(max, v));
+  const norm = clamp((throttleRaw - THR_MIN) / (THR_MAX - THR_MIN), 0, 1);
+  const throttlePct = Math.round(norm * 100);
+
+  // still useful to compute volts if you want raw info
+  const throttleVolts = throttleRaw * (5 / 255);
+
+  // Temperatures
+  const controllerTemperature = buffer.readUInt8(1) - 40;  // offset per CAN doc
+  const motorTemperature = buffer.readUInt8(2) - 30;
+
+  // Clamp to avoid underflow nonsense
+  const clampedControllerTemp = Math.max(-40, controllerTemperature);
   const clampedMotorTemp = Math.max(-30, motorTemperature);
 
-  // Debug log (remove in production)
+  // Debug log
+  console.log(`[KLS Msg2] Raw Throttle: ${throttleRaw}, Mapped: ${throttlePct}%`);
   console.log(`[KLS Msg2] Raw Ctrl Temp Byte: ${buffer[1]}, Parsed: ${clampedControllerTemp}°C`);
   console.log(`[KLS Msg2] Raw Motor Temp Byte: ${buffer[2]}, Parsed: ${clampedMotorTemp}°C`);
 
@@ -439,9 +452,8 @@ const parseKLS_Msg2 = (buffer: Buffer) => {
     messageType: "Controller Parameters",
     controllerTemperature: clampedControllerTemp,
     motorTemperature: clampedMotorTemp,
-    throttle: Math.round((throttleVolts / 5) * 100), // percent-like 0..100 for UI continuity
-    // you can keep throttleVolts too if you want to show it
-    throttleVolts,
+    throttle: throttlePct,       // ✅ now 0–100% calibrated
+    throttleVolts,               // raw 0–5 V if you want it in UI
   };
 };
 
