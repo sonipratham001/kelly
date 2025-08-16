@@ -25,7 +25,7 @@ const horizontalMargin = (screenWidth - contentWidth) / 2;const AnimatedPath = A
 const AnimatedText = Animated.createAnimatedComponent(Text);
 
 
-const MAX_RPM = 8000;
+const MAX_RPM = 6000;
 const ARC_LENGTH = 251.2;
 
 const MotorHealth = () => {
@@ -87,25 +87,24 @@ const animatedBrake = useRef(new Animated.Value(Number(mcu1.brake) || 0)).curren
   };
 }, [mcu2.odometer]);
 
- useEffect(() => {
+ const loopRef = useRef<Animated.CompositeAnimation | null>(null);
+
+useEffect(() => {
   const brakeValue = Number(mcu1.brake) || 0;
   if (brakeValue > 70) {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(brakePulse, {
-          toValue: 1.2,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(brakePulse, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
+    if (!loopRef.current) {
+      loopRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(brakePulse, { toValue: 1.2, duration: 300, useNativeDriver: true }),
+          Animated.timing(brakePulse, { toValue: 1.0, duration: 300, useNativeDriver: true }),
+        ])
+      );
+      loopRef.current.start();
+    }
   } else {
-    brakePulse.setValue(1); // reset pulse
+    loopRef.current?.stop();
+    loopRef.current = null;
+    brakePulse.setValue(1);
   }
 }, [mcu1.brake]);
 
