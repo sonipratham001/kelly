@@ -193,7 +193,7 @@ useEffect(() => {
             {/* Gear & Battery Info */}
             <View style={styles.cornerInfoRow}>
               <View style={styles.leftSide}>
-                <GearSelector gear={gear ?? 'n'} />
+                <GearSelector gear={gear ?? 'f'} />
               </View>
 
               <View style={styles.rightSide}>
