@@ -78,7 +78,7 @@ useEffect(() => {
         };
 
         const motorRPM = updatedData.messageMCU2?.motorRPM ?? 0;
-const K = 0.0366;   // 80/100-18 tyre (~1.939 m), GR=3.18, FDR=1 (two-wheeler) 
+const K = 0.0119;// 80/100-18 tyre (~1.939 m), GR=3.18, FDR=1 (two-wheeler) 
 const calculatedSpeed = +(motorRPM * K).toFixed(1);
 
 updatedData.messageMCU1 = {
@@ -163,7 +163,7 @@ updatedData.messageMCU1 = {
 
     setData((prevData: any) => {
   const motorRPM = decodedData.messageMCU2?.motorRPM ?? prevData.messageMCU2?.motorRPM ?? 0;
-  const K = 0.0366;// Calculated from 407mm tire, GR=1, FDR=9.42
+  const K = 0.0119; 
   const calculatedSpeed = +(motorRPM * K).toFixed(1);
 
   return {
